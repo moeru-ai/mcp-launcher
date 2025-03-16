@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -16,6 +17,35 @@ import (
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 )
+
+func printStatus(status client.SolveStatus) {
+	// Process vertexes (build steps)
+	for _, vertex := range status.Vertexes {
+		// Skip if no name
+		if vertex.Name == "" {
+			continue
+		}
+
+		status := "RUNNING"
+		if vertex.Completed != nil {
+			status = "DONE   "
+		} else if vertex.Cached {
+			status = "CACHED "
+		}
+
+		// Extract step number from name if available
+		stepInfo := ""
+		if strings.Contains(vertex.Name, "] ") {
+			parts := strings.SplitN(vertex.Name, "] ", 2)
+			if len(parts) == 2 {
+				stepInfo = parts[0] + "] "
+				vertex.Name = parts[1]
+			}
+		}
+
+		fmt.Printf("\r[%s] %s%s\n", status, stepInfo, vertex.Name)
+	}
+}
 
 func main() {
 	cmd := &cobra.Command{
@@ -78,9 +108,15 @@ func main() {
 
 				// Try to parse as JSON for additional processing if needed
 				var data client.SolveStatus
-				if err := json.Unmarshal([]byte(line), &data); err == nil {
+				err := json.Unmarshal([]byte(line), &data)
+				if err == nil {
+					printStatus(data)
+
+					// Check for image hash
 					if len(data.Statuses) > 0 {
-						imageStatus, ok := lo.Find(data.Statuses, func(item *client.VertexStatus) bool { return strings.HasPrefix(item.ID, "writing image") })
+						imageStatus, ok := lo.Find(data.Statuses, func(item *client.VertexStatus) bool {
+							return strings.HasPrefix(item.ID, "writing image")
+						})
 						if ok {
 							imageHash = strings.TrimPrefix(imageStatus.ID, "writing image sha256:")
 						}
