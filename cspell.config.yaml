@@ -5,6 +5,8 @@ dictionaries: []
 words:
   - apierrors
   - Apim
+  - bmatcuk
+  - browserbase
   - buildkit
   - bumpp
   - canonicalheader
@@ -17,6 +19,7 @@ words:
   - depguard
   - Describedby
   - Detailf
+  - doublestar
   - dupl
   - durationcheck
   - eastasia
@@ -31,6 +34,7 @@ words:
   - Facemotion
   - flac
   - flexstack
+  - forbidigo
   - forcetypeassert
   - funlen
   - goarch
@@ -68,6 +72,7 @@ words:
   - mulaw
   - musttag
   - nakedret
+  - nekomeowww
   - nestif
   - nilnil
   - nlreturn
@@ -76,16 +81,19 @@ words:
   - nosprintfhostport
   - paralleltest
   - perfsprint
+  - pluginregistry
   - prealloc
   - predeclared
   - rawjson
   - reassign
+  - repositoryurlrules
   - revive
   - Rinna
   - samber
   - slogecho
   - sonarjs
   - ssml
+  - stagehead
   - staticcheck
   - strconv
   - tagalign
