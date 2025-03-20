@@ -14,12 +14,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	dockerclient "github.com/docker/docker/client"
 	dockerfile "github.com/flexstack/new-dockerfile"
 	"github.com/go-git/go-git/v5"
 	"github.com/lmittmann/tint"
 	"github.com/moby/buildkit/client"
+	"github.com/moeru-ai/mcp-launcher/internal/metadata"
 	"github.com/moeru-ai/mcp-launcher/internal/plugins"
 	"github.com/moeru-ai/mcp-launcher/pkg/pluginregistry"
+	"github.com/nekomeowww/xo"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -220,7 +226,8 @@ func main() {
 
 			plugins.RegisterPlugins()
 
-			ctx := context.WithValue(context.Background(), "repoURL", args[0])
+			ctx := metadata.WithContext(context.Background())
+			md := metadata.FromContext(ctx)
 
 			err := pluginregistry.BeforeClone(ctx)
 			if err != nil {
@@ -228,8 +235,10 @@ func main() {
 				os.Exit(1)
 			}
 
+			md.RepositoryURL = args[0]
+
 			// Clone the repository
-			repoPath, err := cloneRepository(args[0])
+			repoPath, err := cloneRepository(md.RepositoryURL)
 			if err != nil {
 				log.Error("Failed to clone repository", slog.Any("error", err))
 				os.Exit(1)
@@ -255,10 +264,8 @@ func main() {
 				log.Error("Failed to walk repository", slog.Any("error", err))
 			}
 
-			ctx = context.WithValue(ctx, "clonedPath", repoPath)
-			if directory != "" {
-				ctx = context.WithValue(ctx, "directory", directory)
-			}
+			md.RepositoryClonedPath = repoPath
+			md.SubDirectory = directory
 
 			err = pluginregistry.AfterClone(ctx)
 			if err != nil {
@@ -356,6 +363,31 @@ func main() {
 			}
 
 			log.Info("Docker build completed", slog.String("dockerfile", dockerfilePath), slog.String("image_hash", imageHash))
+
+			client, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv)
+			if err != nil {
+				panic(err)
+			}
+
+			createdContainer, err := client.ContainerCreate(
+				ctx,
+				&container.Config{
+					Tty:   true,
+					Image: imageHash,
+					Env:   []string{},
+				},
+				&container.HostConfig{},
+				&network.NetworkingConfig{},
+				&v1.Platform{},
+				filepath.Base(repoPath),
+			)
+			if err != nil {
+				panic(err)
+			}
+
+			md.DockerContainerHash = createdContainer.ID
+
+			xo.PrintJSON(md)
 		},
 	}
 

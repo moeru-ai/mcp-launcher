@@ -19,6 +19,8 @@ words:
   - depguard
   - Describedby
   - Detailf
+  - dockerclient
+  - dockerfiles
   - doublestar
   - dupl
   - durationcheck
@@ -79,6 +81,7 @@ words:
   - nolint
   - nolintlint
   - nosprintfhostport
+  - opencontainers
   - paralleltest
   - perfsprint
   - pluginregistry

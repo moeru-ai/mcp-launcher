@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/moeru-ai/mcp-launcher/internal/metadata"
 	"github.com/moeru-ai/mcp-launcher/pkg/jsonpatch"
 	"github.com/moeru-ai/mcp-launcher/pkg/plugins"
 	"github.com/moeru-ai/mcp-launcher/pkg/rules/repositoryurlrules"
@@ -13,53 +14,34 @@ import (
 )
 
 var (
-	_ plugins.PluginAfterClone = (*StageHeadMCPServerPlugin)(nil)
+	_ plugins.PluginAfterClone = (*StageHandMCPServerPlugin)(nil)
 )
 
-// StageHeadMCPServerPlugin help to build browserbase/stagehead mcp server
-type StageHeadMCPServerPlugin struct {
+// StageHandMCPServerPlugin help to build browserbase/stagehead mcp server
+type StageHandMCPServerPlugin struct {
 	repositoryurlrules.RulesPlugin
 }
 
-func NewStageHeadMCPServerPlugin() *StageHeadMCPServerPlugin {
-	return &StageHeadMCPServerPlugin{
+func NewStageHeadMCPServerPlugin() *StageHandMCPServerPlugin {
+	return &StageHandMCPServerPlugin{
 		RulesPlugin: repositoryurlrules.Rules(
 			repositoryurlrules.ForExact("https://github.com/browserbase/mcp-server-browserbase"),
 		),
 	}
 }
 
-func (p *StageHeadMCPServerPlugin) ShouldHandleAfterClone(ctx context.Context) (bool, error) {
-	repoURL, ok := ctx.Value("repoURL").(string)
-	if !ok {
-		return false, nil
-	}
-
-	return p.ShouldHandle(ctx, repoURL), nil
+func (p *StageHandMCPServerPlugin) ShouldHandleAfterClone(ctx context.Context) (bool, error) {
+	return p.ShouldHandle(ctx, metadata.FromContext(ctx).RepositoryURL), nil
 }
 
-func (p *StageHeadMCPServerPlugin) AfterClone(ctx context.Context) error {
-	// Only proceed if rules match
-	repoURL, ok := ctx.Value("repoURL").(string)
-	if !ok {
+func (p *StageHandMCPServerPlugin) AfterClone(ctx context.Context) error {
+	md := metadata.FromContext(ctx)
+
+	if !p.ShouldHandle(ctx, md.RepositoryURL) {
 		return nil
 	}
 
-	if !p.ShouldHandle(ctx, repoURL) {
-		return nil
-	}
-
-	clonedPath, ok := ctx.Value("clonedPath").(string)
-	if !ok {
-		return nil
-	}
-
-	directory, ok := ctx.Value("directory").(string)
-	if !ok {
-		directory = "stagehead"
-	}
-
-	packageJSONPath := filepath.Join(clonedPath, directory, "package.json")
+	packageJSONPath := filepath.Join(md.RepositoryClonedPath, md.SubDirectory, "package.json")
 
 	packageJSONContent, err := os.ReadFile(packageJSONPath)
 	if err != nil {
