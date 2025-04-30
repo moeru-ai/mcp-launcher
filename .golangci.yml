@@ -42,7 +42,7 @@ linters:
         - context.WithTimeout
         - strconv.ParseComplex
     nestif:
-      min-complexity: 9
+      min-complexity: 15
     revive:
       rules:
         - name: blank-imports

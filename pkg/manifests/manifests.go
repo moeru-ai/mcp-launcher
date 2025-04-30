@@ -170,8 +170,6 @@ func executeManifest(ctx context.Context, manifest Manifest, on string) error {
 			continue
 		}
 
-		fmt.Println("op", op)
-
 		switch op.Type {
 		case OperationPatchJSON:
 			targetPath := filepath.Join(md.RepositoryClonedPath, md.SubDirectory, op.TargetPath)
@@ -180,8 +178,6 @@ func executeManifest(ctx context.Context, manifest Manifest, on string) error {
 			if err != nil {
 				return err
 			}
-
-			fmt.Println("targetPath", targetPath)
 
 			// Convert manifest patch operations to jsonpatch operations
 			patches := make([]mo.Option[jsonpatch.JSONPatchOperationObject], 0, len(op.Patches))

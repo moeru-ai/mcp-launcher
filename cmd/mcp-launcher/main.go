@@ -239,11 +239,12 @@ func printStatus(status client.SolveStatus) {
 			}
 		}
 
-		fmt.Fprintf(os.Stdout, "\r[%s] %s%s", status, stepInfo, vertex.Name) //nolint:forbidigo
+		fmt.Fprintf(os.Stdout, "\r[%s] %s%s", status, stepInfo, vertex.Name)
 		if vertex.Error != "" {
-			fmt.Fprintf(os.Stdout, " %s", vertex.Error) //nolint:forbidigo
+			fmt.Fprintf(os.Stdout, " %s", vertex.Error)
 		}
-		fmt.Fprintln(os.Stdout) //nolint:forbidigo
+
+		fmt.Fprintln(os.Stdout)
 	}
 }
 
