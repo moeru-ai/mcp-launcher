@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: MCPServerManifest
+metadata:
+  name: "search1api-mcp"
+  description: "Configures fatwang2/search1api mcp server"
+spec:
+  match:
+    type: "RepositoryUrl"
+    exactUrls:
+      - "https://github.com/fatwang2/search1api"
+  operations:
+    - on: "AfterClone"
+      type: "PatchJson"
+      targetPath: "package.json"
+      patches:
+        - op: "remove"
+          path: "/scripts/prepare"
+        - op: "add"
+          path: "/scripts/start"

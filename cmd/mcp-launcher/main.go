@@ -21,9 +21,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/lmittmann/tint"
 	"github.com/moby/buildkit/client"
-	"github.com/moeru-ai/mcp-launcher/internal/metadata"
-	"github.com/moeru-ai/mcp-launcher/internal/plugins"
-	"github.com/moeru-ai/mcp-launcher/pkg/pluginregistry"
+	"github.com/moeru-ai/mcp-launcher/internal/contexts"
+	"github.com/moeru-ai/mcp-launcher/pkg/manifests"
 	"github.com/nekomeowww/xo"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -107,20 +106,41 @@ func pullLatest(repo *git.Repository) error {
 		Force:      false,
 	})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return fmt.Errorf("failed to pull latest changes: %w", err)
+		if err.Error() != "object not found" {
+			return fmt.Errorf("failed to pull latest changes: %w", err)
+		}
+
+		err = repo.Fetch(&git.FetchOptions{
+			RemoteName: "origin",
+			Progress:   os.Stdout,
+			Force:      false,
+		})
+		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+			return fmt.Errorf("failed to fetch latest changes: %w", err)
+		}
+
+		return nil
 	}
 
 	return nil
 }
 
-func cloneRepository(repoURL string) (string, error) {
+func cloneRepository(ctx context.Context, repoURL string) (string, error) {
+	log := contexts.SlogFrom(ctx)
+
+	log.Debug("preparing to clone repository", slog.String("url", repoURL))
+
 	repoPath, err := parseRepoURL(repoURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to parse repository URL: %w", err)
 	}
+
+	log.Debug("parsed repository URL", slog.String("path", repoPath))
 
 	// Create the full path for the repository
 	targetPath := filepath.Join(getXDGDataHome(), "mcp-launcher", "servers", "source", repoPath)
+
+	log.Debug("creating directory to store repository", slog.String("path", targetPath))
 
 	// Ensure the parent directory exists
 	err = os.MkdirAll(filepath.Dir(targetPath), 0755) //nolint:mnd
@@ -128,34 +148,51 @@ func cloneRepository(repoURL string) (string, error) {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	log.Debug("directory created", slog.String("path", targetPath))
+
 	var repo *git.Repository
 
 	// Check if repository already exists
-	if _, err := os.Stat(filepath.Join(targetPath, ".git")); err == nil {
-		// Repository exists, open it
-		repo, err = git.PlainOpen(targetPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to open existing repository: %w", err)
-		}
+	stat, err := os.Stat(filepath.Join(targetPath, ".git"))
+	if err == nil {
+		if stat.IsDir() {
+			log.Debug("existing repository found", slog.String("path", targetPath))
 
-		// Check if working tree is clean
-		clean, err := isWorkingTreeClean(repo)
-		if err != nil {
-			return "", err
-		}
-
-		if !clean {
-			// Instead of stashing (which isn't supported by go-git), we'll reset to HEAD
-			if err := resetHard(repo); err != nil {
-				return "", err
+			// Repository exists, open it
+			repo, err = git.PlainOpen(targetPath)
+			if err != nil {
+				return "", fmt.Errorf("failed to open existing repository: %w", err)
 			}
-		}
 
-		if err := pullLatest(repo); err != nil {
-			return "", err
-		}
+			log.Debug("repository opened", slog.String("path", targetPath))
 
-		return targetPath, nil
+			// Check if working tree is clean
+			clean, err := isWorkingTreeClean(repo)
+			if err != nil {
+				return "", fmt.Errorf("failed to check if working tree is clean: %w", err)
+			}
+
+			log.Debug("checked if working tree is clean", slog.Bool("clean", clean))
+
+			if !clean {
+				// Instead of stashing (which isn't supported by go-git), we'll reset to HEAD
+				if err := resetHard(repo); err != nil {
+					return "", fmt.Errorf("failed to reset to HEAD: %w", err)
+				}
+			}
+
+			log.Debug("pulling latest changes")
+
+			if err := pullLatest(repo); err != nil {
+				return "", fmt.Errorf("failed to pull latest changes: %w", err)
+			}
+
+			log.Debug("pulled latest changes")
+
+			return targetPath, nil
+		} else {
+			return "", fmt.Errorf("existing repository contains invalid file(s): %s, .git is a file", targetPath)
+		}
 	}
 
 	// Clone new repository
@@ -188,6 +225,10 @@ func printStatus(status client.SolveStatus) {
 			status = "CACHED "
 		}
 
+		if vertex.Error != "" {
+			status = "ERROR  "
+		}
+
 		// Extract step number from name if available
 		stepInfo := ""
 		if strings.Contains(vertex.Name, "] ") {
@@ -198,7 +239,11 @@ func printStatus(status client.SolveStatus) {
 			}
 		}
 
-		fmt.Printf("\r[%s] %s%s\n", status, stepInfo, vertex.Name) //nolint:forbidigo
+		fmt.Fprintf(os.Stdout, "\r[%s] %s%s", status, stepInfo, vertex.Name) //nolint:forbidigo
+		if vertex.Error != "" {
+			fmt.Fprintf(os.Stdout, " %s", vertex.Error) //nolint:forbidigo
+		}
+		fmt.Fprintln(os.Stdout) //nolint:forbidigo
 	}
 }
 
@@ -212,9 +257,11 @@ func main() {
 		Short: "Clone a repository and build its Docker image",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cobraCmd *cobra.Command, args []string) {
-			level := slog.LevelInfo
+			level := new(slog.LevelVar)
+
+			level.Set(slog.LevelInfo)
 			if os.Getenv("DEBUG") != "" {
-				level = slog.LevelDebug
+				level.Set(slog.LevelDebug)
 			}
 
 			handler := tint.NewHandler(os.Stderr, &tint.Options{
@@ -224,21 +271,20 @@ func main() {
 
 			log := slog.New(handler)
 
-			plugins.RegisterPlugins()
+			ctx := contexts.WithMetadata(context.Background())
+			ctx = contexts.WithSlog(ctx, log)
 
-			ctx := metadata.WithContext(context.Background())
-			md := metadata.FromContext(ctx)
-
-			err := pluginregistry.BeforeClone(ctx)
+			err := manifests.LoadManifests(ctx)
 			if err != nil {
-				log.Error("Failed to run before clone plugins", slog.Any("error", err))
+				log.Error("Failed to load manifests", slog.Any("error", err))
 				os.Exit(1)
 			}
 
+			md := contexts.MetadataFrom(ctx)
 			md.RepositoryURL = args[0]
 
 			// Clone the repository
-			repoPath, err := cloneRepository(md.RepositoryURL)
+			repoPath, err := cloneRepository(ctx, md.RepositoryURL)
 			if err != nil {
 				log.Error("Failed to clone repository", slog.Any("error", err))
 				os.Exit(1)
@@ -267,7 +313,7 @@ func main() {
 			md.RepositoryClonedPath = repoPath
 			md.SubDirectory = directory
 
-			err = pluginregistry.AfterClone(ctx)
+			err = manifests.ExecuteAfterClone(ctx)
 			if err != nil {
 				log.Error("Failed to run after clone plugins", slog.Any("error", err))
 				os.Exit(1)
@@ -354,12 +400,6 @@ func main() {
 			if err := dockerCmd.Wait(); err != nil {
 				log.Error("Docker build failed", slog.Any("error", err))
 				panic(err)
-			}
-
-			err = pluginregistry.AfterBuild(ctx)
-			if err != nil {
-				log.Error("Failed to run after build plugins", slog.Any("error", err))
-				os.Exit(1)
 			}
 
 			log.Info("Docker build completed", slog.String("dockerfile", dockerfilePath), slog.String("image_hash", imageHash))

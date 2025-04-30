@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: MCPServerManifest
+metadata:
+  name: "mc-server-browserbase"
+  description: "Configures browserbase/mcp-server-browserbase mcp server"
+spec:
+  match:
+    type: "RepositoryUrl"
+    exactUrls:
+      - "https://github.com/browserbase/mcp-server-browserbase"
+  operations:
+    - on: "AfterClone"
+      type: "PatchJson"
+      targetPath: "package.json"
+      patches:
+        - op: "remove"
+          path: "/scripts/prepare"
+        - op: "add"
+          path: "/scripts/start"
+          value: "node dist/index.js"
